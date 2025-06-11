@@ -1,0 +1,24 @@
+.markdown-suggest-item {
+    padding: 8px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.markdown-suggest-item:hover {
+    background-color: var(--background-modifier-hover);
+}
+
+.markdown-suggest-title {
+    font-weight: 500;
+    color: var(--text-normal);
+    margin-bottom: 2px;
+}
+
+.markdown-suggest-description {
+    font-size: 0.85em;
+    color: var(--text-muted);
+}
+
+.markdown-suggest-item.is-selected {
+    background-color: var(--background-modifier-active-hover);
+}
