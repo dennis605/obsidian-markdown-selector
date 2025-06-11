@@ -10,34 +10,75 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const obsidian_1 = require("obsidian");
-class MarkdownSelectorPlugin extends obsidian_1.Plugin {
-    onload() {
-        return __awaiter(this, void 0, void 0, function* () {
-            this.registerEditorSuggest(new MarkdownElementSuggest(this));
-        });
-    }
-}
-exports.default = MarkdownSelectorPlugin;
-class MarkdownElementSuggest extends obsidian_1.EditorSuggest {
-    constructor(plugin) {
+const DEFAULT_SETTINGS = {
+    hotkey: "Mod+M"
+};
+class MarkdownElementSuggestModal extends obsidian_1.SuggestModal {
+    constructor(plugin, editor) {
         super(plugin.app);
         this.plugin = plugin;
+        this.editor = editor;
     }
-    onTrigger(cursor, editor, file) {
-        const line = editor.getLine(cursor.line);
-        const beforeCursor = line.substring(0, cursor.ch);
-        if (beforeCursor.endsWith("//")) {
-            return {
-                start: { line: cursor.line, ch: cursor.ch - 2 },
-                end: cursor,
-                query: ""
-            };
+    getSuggestions(query) {
+        // Optional: Filter nach query
+        return this.plugin.getMarkdownElements();
+    }
+    renderSuggestion(element, el) {
+        el.createEl("div", { text: element.label + " – " + element.description });
+    }
+    onChooseSuggestion(element, evt) {
+        // Gleiche Logik wie bisher für das Einfügen
+        const selection = this.editor.getSelection();
+        let insertText = element.insert;
+        if (selection && selection.length > 0) {
+            insertText = insertText
+                .replace(/Text/g, selection)
+                .replace(/Code/g, selection)
+                .replace(/Linktext/g, selection)
+                .replace(/Bild-URL/g, selection)
+                .replace(/Notizname/g, selection)
+                .replace(/tag/g, selection)
+                .replace(/Inhalt/g, selection);
+            if (element.label === 'Fußnote') {
+                insertText = insertText.replace(selection + '[^1]', selection + '[^1]');
+            }
+            this.editor.replaceSelection(insertText);
         }
-        return null;
+        else {
+            this.editor.replaceSelection(insertText);
+        }
     }
-    getSuggestions(context) {
+}
+class MarkdownSelectorPlugin extends obsidian_1.Plugin {
+    constructor() {
+        super(...arguments);
+        this.settings = DEFAULT_SETTINGS;
+    }
+    onload() {
+        return __awaiter(this, void 0, void 0, function* () {
+            yield this.loadSettings();
+            this.addSettingTab(new MarkdownSelectorSettingTab(this.app, this));
+            this.addCommand({
+                id: "open-markdown-selector",
+                name: "Markdown-Selector öffnen",
+                editorCallback: (editor) => {
+                    new MarkdownElementSuggestModal(this, editor).open();
+                }
+            });
+        });
+    }
+    loadSettings() {
+        return __awaiter(this, void 0, void 0, function* () {
+            this.settings = Object.assign({}, DEFAULT_SETTINGS, yield this.loadData());
+        });
+    }
+    saveSettings() {
+        return __awaiter(this, void 0, void 0, function* () {
+            yield this.saveData(this.settings);
+        });
+    }
+    getMarkdownElements() {
         return [
-            // Überschriften
             { label: 'H1 - Überschrift 1', insert: '# ', description: 'Hauptüberschrift' },
             { label: 'H2 - Überschrift 2', insert: '## ', description: 'Unterüberschrift' },
             { label: 'H3 - Überschrift 3', insert: '### ', description: 'Unterüberschrift Ebene 3' },
@@ -74,19 +115,27 @@ class MarkdownElementSuggest extends obsidian_1.EditorSuggest {
             { label: 'Fußnote', insert: 'Text[^1]\n\n[^1]: Fußnotentext', description: 'Fußnote' }
         ];
     }
-    renderSuggestion(element, el) {
-        el.createEl("div", { text: element.label + " – " + element.description });
+}
+exports.default = MarkdownSelectorPlugin;
+class MarkdownSelectorSettingTab extends obsidian_1.PluginSettingTab {
+    constructor(app, plugin) {
+        super(app, plugin);
+        this.plugin = plugin;
     }
-    selectSuggestion(element, evt) {
-        var _a;
-        const editor = (_a = this.context) === null || _a === void 0 ? void 0 : _a.editor;
-        if (!editor)
-            return;
-        const cursor = editor.getCursor();
-        const line = editor.getLine(cursor.line);
-        const newLine = line.substring(0, cursor.ch - 2) + element.insert + line.substring(cursor.ch);
-        editor.setLine(cursor.line, newLine);
-        editor.setCursor(cursor.line, cursor.ch - 2 + element.insert.length);
+    display() {
+        const { containerEl } = this;
+        containerEl.empty();
+        containerEl.createEl("h2", { text: "Markdown Selector Einstellungen" });
+        new obsidian_1.Setting(containerEl)
+            .setName("Tastenkombination")
+            .setDesc("Wähle die Tastenkombination zum Öffnen des Selectors (Standard: Mod+M)")
+            .addText(text => text
+            .setPlaceholder("Mod+M")
+            .setValue(this.plugin.settings.hotkey)
+            .onChange((value) => __awaiter(this, void 0, void 0, function* () {
+            this.plugin.settings.hotkey = value;
+            yield this.plugin.saveSettings();
+        })));
     }
 }
 //# sourceMappingURL=main.js.map
