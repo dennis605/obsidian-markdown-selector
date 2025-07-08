@@ -1,4 +1,4 @@
-import { Plugin, Editor, PluginSettingTab, Setting, App, TFile, SuggestModal } from "obsidian";
+import { Plugin, Editor, PluginSettingTab, Setting, App, TFile, SuggestModal, Modifier, Hotkey, EditorSuggest, EditorSuggestTriggerInfo, EditorPosition, EditorSuggestContext } from "obsidian";
 
 interface MarkdownElement {
     label: string;
@@ -13,6 +13,40 @@ interface MarkdownSelectorSettings {
 const DEFAULT_SETTINGS: MarkdownSelectorSettings = {
     hotkey: "Mod+M"
 };
+
+class MarkdownElementSuggest extends EditorSuggest<MarkdownElement> {
+    plugin: MarkdownSelectorPlugin;
+
+    constructor(plugin: MarkdownSelectorPlugin) {
+        super(plugin.app);
+        this.plugin = plugin;
+    }
+
+    onTrigger(cursor: EditorPosition, editor: Editor, _file: TFile): EditorSuggestTriggerInfo | null {
+        const line = editor.getLine(cursor.line);
+        const beforeCursor = line.substring(0, cursor.ch);
+        if (beforeCursor.endsWith("//")) {
+            // remove the trigger characters and open the selector modal
+            editor.replaceRange("", { line: cursor.line, ch: cursor.ch - 2 }, cursor);
+            new MarkdownElementSuggestModal(this.plugin, editor).open();
+        }
+        return null;
+    }
+
+    getSuggestions(_context: EditorSuggestContext): MarkdownElement[] {
+        return this.plugin.getMarkdownElements();
+    }
+
+    renderSuggestion(value: MarkdownElement, el: HTMLElement) {
+        el.createEl("div", { text: `${value.label} – ${value.description}` });
+    }
+
+    selectSuggestion(value: MarkdownElement) {
+        const editor = this.context?.editor;
+        if (!editor) return;
+        this.plugin.insertElement(editor, value);
+    }
+}
 
 class MarkdownElementSuggestModal extends SuggestModal<MarkdownElement> {
     editor: Editor;
@@ -30,8 +64,15 @@ class MarkdownElementSuggestModal extends SuggestModal<MarkdownElement> {
         el.createEl("div", { text: element.label + " – " + element.description });
     }
     onChooseSuggestion(element: MarkdownElement, evt: MouseEvent | KeyboardEvent) {
-        // Gleiche Logik wie bisher für das Einfügen
-        const selection = this.editor.getSelection();
+        this.plugin.insertElement(this.editor, element);
+    }
+}
+
+export default class MarkdownSelectorPlugin extends Plugin {
+    settings: MarkdownSelectorSettings = DEFAULT_SETTINGS;
+
+    insertElement(editor: Editor, element: MarkdownElement) {
+        const selection = editor.getSelection();
         let insertText = element.insert;
         if (selection && selection.length > 0) {
             insertText = insertText
@@ -45,26 +86,66 @@ class MarkdownElementSuggestModal extends SuggestModal<MarkdownElement> {
             if (element.label === 'Fußnote') {
                 insertText = insertText.replace(selection + '[^1]', selection + '[^1]');
             }
-            this.editor.replaceSelection(insertText);
+            const from = editor.getCursor('from');
+            editor.replaceSelection(insertText);
+            editor.setCursor({ line: from.line, ch: from.ch + insertText.length });
         } else {
-            this.editor.replaceSelection(insertText);
+            const placeholders = [
+                'Text',
+                'Code',
+                'Linktext',
+                'URL',
+                'Bild-URL',
+                'Notizname',
+                'tag',
+                'Inhalt',
+                'Aufgabe'
+            ];
+            let cursorOffset = insertText.length;
+            for (const p of placeholders) {
+                const idx = insertText.indexOf(p);
+                if (idx !== -1) {
+                    insertText = insertText.replace(p, '');
+                    cursorOffset = idx;
+                    break;
+                }
+            }
+            const from = editor.getCursor('from');
+            editor.replaceSelection(insertText);
+            editor.setCursor({ line: from.line, ch: from.ch + cursorOffset });
         }
     }
-}
 
-export default class MarkdownSelectorPlugin extends Plugin {
-    settings: MarkdownSelectorSettings = DEFAULT_SETTINGS;
+    private parseHotkey(hotkey: string): Hotkey | null {
+        if (!hotkey) return null;
+        const parts = hotkey.split("+").map(p => p.trim()).filter(p => p.length > 0);
+        if (parts.length === 0) return null;
+        const key = parts.pop() as string;
+        const modifiers = parts as Modifier[];
+        return { modifiers, key };
+    }
+
+    registerCommand() {
+        const parsed = this.parseHotkey(this.settings.hotkey);
+        const fullId = `${this.manifest.id}:open-markdown-selector`;
+        try {
+            (this.app as any).commands.removeCommand(fullId);
+        } catch (e) {
+            // ignore if command does not exist
+        }
+        this.addCommand({
+            id: "open-markdown-selector",
+            name: "Markdown-Selector öffnen",
+            editorCallback: (editor) => new MarkdownElementSuggestModal(this, editor).open(),
+            hotkeys: parsed ? [parsed] : []
+        });
+    }
 
     async onload() {
         await this.loadSettings();
         this.addSettingTab(new MarkdownSelectorSettingTab(this.app, this));
-        this.addCommand({
-            id: "open-markdown-selector",
-            name: "Markdown-Selector öffnen",
-            editorCallback: (editor) => {
-                new MarkdownElementSuggestModal(this, editor).open();
-            }
-        });
+        this.registerEditorSuggest(new MarkdownElementSuggest(this));
+        this.registerCommand();
     }
 
     async loadSettings() {
@@ -94,6 +175,8 @@ export default class MarkdownSelectorPlugin extends Plugin {
             { label: 'Ungeordnete Liste', insert: '- ', description: 'Aufzählungsliste' },
             { label: 'Geordnete Liste', insert: '1. ', description: 'Nummerierte Liste' },
             { label: 'Aufgabenliste', insert: '- [ ] ', description: 'Checkbox Liste' },
+            { label: 'Aufgabe offen', insert: '- [ ] Aufgabe', description: 'Einzelne offene Aufgabe' },
+            { label: 'Aufgabe erledigt', insert: '- [x] Aufgabe', description: 'Abgeschlossene Aufgabe' },
 
             // Blöcke
             { label: 'Codeblock', insert: '```\nCode\n```', description: 'Mehrzeiliger Codeblock' },
@@ -138,6 +221,7 @@ class MarkdownSelectorSettingTab extends PluginSettingTab {
                 .onChange(async (value) => {
                     this.plugin.settings.hotkey = value;
                     await this.plugin.saveSettings();
+                    this.plugin.registerCommand();
                 }));
     }
 }

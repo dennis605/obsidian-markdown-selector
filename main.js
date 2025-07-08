@@ -13,6 +13,35 @@ const obsidian_1 = require("obsidian");
 const DEFAULT_SETTINGS = {
     hotkey: "Mod+M"
 };
+class MarkdownElementSuggest extends obsidian_1.EditorSuggest {
+    constructor(plugin) {
+        super(plugin.app);
+        this.plugin = plugin;
+    }
+    onTrigger(cursor, editor, _file) {
+        const line = editor.getLine(cursor.line);
+        const beforeCursor = line.substring(0, cursor.ch);
+        if (beforeCursor.endsWith("//")) {
+            // remove the trigger characters and open the selector modal
+            editor.replaceRange("", { line: cursor.line, ch: cursor.ch - 2 }, cursor);
+            new MarkdownElementSuggestModal(this.plugin, editor).open();
+        }
+        return null;
+    }
+    getSuggestions(_context) {
+        return this.plugin.getMarkdownElements();
+    }
+    renderSuggestion(value, el) {
+        el.createEl("div", { text: `${value.label} – ${value.description}` });
+    }
+    selectSuggestion(value) {
+        var _a;
+        const editor = (_a = this.context) === null || _a === void 0 ? void 0 : _a.editor;
+        if (!editor)
+            return;
+        this.plugin.insertElement(editor, value);
+    }
+}
 class MarkdownElementSuggestModal extends obsidian_1.SuggestModal {
     constructor(plugin, editor) {
         super(plugin.app);
@@ -27,8 +56,16 @@ class MarkdownElementSuggestModal extends obsidian_1.SuggestModal {
         el.createEl("div", { text: element.label + " – " + element.description });
     }
     onChooseSuggestion(element, evt) {
-        // Gleiche Logik wie bisher für das Einfügen
-        const selection = this.editor.getSelection();
+        this.plugin.insertElement(this.editor, element);
+    }
+}
+class MarkdownSelectorPlugin extends obsidian_1.Plugin {
+    constructor() {
+        super(...arguments);
+        this.settings = DEFAULT_SETTINGS;
+    }
+    insertElement(editor, element) {
+        const selection = editor.getSelection();
         let insertText = element.insert;
         if (selection && selection.length > 0) {
             insertText = insertText
@@ -42,29 +79,68 @@ class MarkdownElementSuggestModal extends obsidian_1.SuggestModal {
             if (element.label === 'Fußnote') {
                 insertText = insertText.replace(selection + '[^1]', selection + '[^1]');
             }
-            this.editor.replaceSelection(insertText);
+            const from = editor.getCursor('from');
+            editor.replaceSelection(insertText);
+            editor.setCursor({ line: from.line, ch: from.ch + insertText.length });
         }
         else {
-            this.editor.replaceSelection(insertText);
+            const placeholders = [
+                'Text',
+                'Code',
+                'Linktext',
+                'URL',
+                'Bild-URL',
+                'Notizname',
+                'tag',
+                'Inhalt',
+                'Aufgabe'
+            ];
+            let cursorOffset = insertText.length;
+            for (const p of placeholders) {
+                const idx = insertText.indexOf(p);
+                if (idx !== -1) {
+                    insertText = insertText.replace(p, '');
+                    cursorOffset = idx;
+                    break;
+                }
+            }
+            const from = editor.getCursor('from');
+            editor.replaceSelection(insertText);
+            editor.setCursor({ line: from.line, ch: from.ch + cursorOffset });
         }
     }
-}
-class MarkdownSelectorPlugin extends obsidian_1.Plugin {
-    constructor() {
-        super(...arguments);
-        this.settings = DEFAULT_SETTINGS;
+    parseHotkey(hotkey) {
+        if (!hotkey)
+            return null;
+        const parts = hotkey.split("+").map(p => p.trim()).filter(p => p.length > 0);
+        if (parts.length === 0)
+            return null;
+        const key = parts.pop();
+        const modifiers = parts;
+        return { modifiers, key };
+    }
+    registerCommand() {
+        const parsed = this.parseHotkey(this.settings.hotkey);
+        const fullId = `${this.manifest.id}:open-markdown-selector`;
+        try {
+            this.app.commands.removeCommand(fullId);
+        }
+        catch (e) {
+            // ignore if command does not exist
+        }
+        this.addCommand({
+            id: "open-markdown-selector",
+            name: "Markdown-Selector öffnen",
+            editorCallback: (editor) => new MarkdownElementSuggestModal(this, editor).open(),
+            hotkeys: parsed ? [parsed] : []
+        });
     }
     onload() {
         return __awaiter(this, void 0, void 0, function* () {
             yield this.loadSettings();
             this.addSettingTab(new MarkdownSelectorSettingTab(this.app, this));
-            this.addCommand({
-                id: "open-markdown-selector",
-                name: "Markdown-Selector öffnen",
-                editorCallback: (editor) => {
-                    new MarkdownElementSuggestModal(this, editor).open();
-                }
-            });
+            this.registerEditorSuggest(new MarkdownElementSuggest(this));
+            this.registerCommand();
         });
     }
     loadSettings() {
@@ -96,6 +172,8 @@ class MarkdownSelectorPlugin extends obsidian_1.Plugin {
             { label: 'Ungeordnete Liste', insert: '- ', description: 'Aufzählungsliste' },
             { label: 'Geordnete Liste', insert: '1. ', description: 'Nummerierte Liste' },
             { label: 'Aufgabenliste', insert: '- [ ] ', description: 'Checkbox Liste' },
+            { label: 'Aufgabe offen', insert: '- [ ] Aufgabe', description: 'Einzelne offene Aufgabe' },
+            { label: 'Aufgabe erledigt', insert: '- [x] Aufgabe', description: 'Abgeschlossene Aufgabe' },
             // Blöcke
             { label: 'Codeblock', insert: '```\nCode\n```', description: 'Mehrzeiliger Codeblock' },
             { label: 'Zitat', insert: '> ', description: 'Blockzitat' },
@@ -135,6 +213,7 @@ class MarkdownSelectorSettingTab extends obsidian_1.PluginSettingTab {
             .onChange((value) => __awaiter(this, void 0, void 0, function* () {
             this.plugin.settings.hotkey = value;
             yield this.plugin.saveSettings();
+            this.plugin.registerCommand();
         })));
     }
 }
