@@ -1,4 +1,4 @@
-import { Plugin, Editor, PluginSettingTab, Setting, App, TFile, SuggestModal, Modifier, Hotkey, EditorSuggest, EditorSuggestTriggerInfo, EditorPosition, EditorSuggestContext } from "obsidian";
+import { Plugin, Editor, TFile, EditorSuggest, EditorSuggestTriggerInfo, EditorPosition, EditorSuggestContext, SuggestModal } from "obsidian";
 
 interface MarkdownElement {
     label: string;
@@ -6,13 +6,6 @@ interface MarkdownElement {
     description: string;
 }
 
-interface MarkdownSelectorSettings {
-    hotkey: string;
-}
-
-const DEFAULT_SETTINGS: MarkdownSelectorSettings = {
-    hotkey: "Mod+M"
-};
 
 class MarkdownElementSuggest extends EditorSuggest<MarkdownElement> {
     plugin: MarkdownSelectorPlugin;
@@ -57,8 +50,12 @@ class MarkdownElementSuggestModal extends SuggestModal<MarkdownElement> {
         this.editor = editor;
     }
     getSuggestions(query: string): MarkdownElement[] {
-        // Optional: Filter nach query
-        return this.plugin.getMarkdownElements();
+        const elements = this.plugin.getMarkdownElements();
+        const q = query.toLowerCase();
+        return elements.filter(el =>
+            el.label.toLowerCase().includes(q) ||
+            el.description.toLowerCase().includes(q)
+        );
     }
     renderSuggestion(element: MarkdownElement, el: HTMLElement) {
         el.createEl("div", { text: element.label + " – " + element.description });
@@ -69,7 +66,6 @@ class MarkdownElementSuggestModal extends SuggestModal<MarkdownElement> {
 }
 
 export default class MarkdownSelectorPlugin extends Plugin {
-    settings: MarkdownSelectorSettings = DEFAULT_SETTINGS;
 
     insertElement(editor: Editor, element: MarkdownElement) {
         const selection = editor.getSelection();
@@ -116,17 +112,7 @@ export default class MarkdownSelectorPlugin extends Plugin {
         }
     }
 
-    private parseHotkey(hotkey: string): Hotkey | null {
-        if (!hotkey) return null;
-        const parts = hotkey.split("+").map(p => p.trim()).filter(p => p.length > 0);
-        if (parts.length === 0) return null;
-        const key = parts.pop() as string;
-        const modifiers = parts as Modifier[];
-        return { modifiers, key };
-    }
-
     registerCommand() {
-        const parsed = this.parseHotkey(this.settings.hotkey);
         const fullId = `${this.manifest.id}:open-markdown-selector`;
         try {
             (this.app as any).commands.removeCommand(fullId);
@@ -137,22 +123,13 @@ export default class MarkdownSelectorPlugin extends Plugin {
             id: "open-markdown-selector",
             name: "Markdown-Selector öffnen",
             editorCallback: (editor) => new MarkdownElementSuggestModal(this, editor).open(),
-            hotkeys: parsed ? [parsed] : []
+            hotkeys: [{ modifiers: ["Mod"], key: "m" }]
         });
     }
 
     async onload() {
-        await this.loadSettings();
-        this.addSettingTab(new MarkdownSelectorSettingTab(this.app, this));
         this.registerEditorSuggest(new MarkdownElementSuggest(this));
         this.registerCommand();
-    }
-
-    async loadSettings() {
-        this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-    }
-    async saveSettings() {
-        await this.saveData(this.settings);
     }
     getMarkdownElements(): MarkdownElement[] {
         return [
@@ -202,26 +179,3 @@ export default class MarkdownSelectorPlugin extends Plugin {
     }
 }
 
-class MarkdownSelectorSettingTab extends PluginSettingTab {
-    plugin: MarkdownSelectorPlugin;
-    constructor(app: import("obsidian").App, plugin: MarkdownSelectorPlugin) {
-        super(app, plugin);
-        this.plugin = plugin;
-    }
-    display(): void {
-        const { containerEl } = this;
-        containerEl.empty();
-        containerEl.createEl("h2", { text: "Markdown Selector Einstellungen" });
-        new Setting(containerEl)
-            .setName("Tastenkombination")
-            .setDesc("Wähle die Tastenkombination zum Öffnen des Selectors (Standard: Mod+M)")
-            .addText(text => text
-                .setPlaceholder("Mod+M")
-                .setValue(this.plugin.settings.hotkey)
-                .onChange(async (value) => {
-                    this.plugin.settings.hotkey = value;
-                    await this.plugin.saveSettings();
-                    this.plugin.registerCommand();
-                }));
-    }
-}
