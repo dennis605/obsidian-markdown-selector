@@ -1,4 +1,4 @@
-import { Plugin, Editor, PluginSettingTab, Setting, App, TFile, SuggestModal } from "obsidian";
+import { Plugin, Editor, PluginSettingTab, Setting, App, TFile, SuggestModal, Modifier, Hotkey } from "obsidian";
 
 interface MarkdownElement {
     label: string;
@@ -55,16 +55,35 @@ class MarkdownElementSuggestModal extends SuggestModal<MarkdownElement> {
 export default class MarkdownSelectorPlugin extends Plugin {
     settings: MarkdownSelectorSettings = DEFAULT_SETTINGS;
 
-    async onload() {
-        await this.loadSettings();
-        this.addSettingTab(new MarkdownSelectorSettingTab(this.app, this));
+    private parseHotkey(hotkey: string): Hotkey | null {
+        if (!hotkey) return null;
+        const parts = hotkey.split("+").map(p => p.trim()).filter(p => p.length > 0);
+        if (parts.length === 0) return null;
+        const key = parts.pop() as string;
+        const modifiers = parts as Modifier[];
+        return { modifiers, key };
+    }
+
+    registerCommand() {
+        const parsed = this.parseHotkey(this.settings.hotkey);
+        const fullId = `${this.manifest.id}:open-markdown-selector`;
+        try {
+            (this.app as any).commands.removeCommand(fullId);
+        } catch (e) {
+            // ignore if command does not exist
+        }
         this.addCommand({
             id: "open-markdown-selector",
             name: "Markdown-Selector öffnen",
-            editorCallback: (editor) => {
-                new MarkdownElementSuggestModal(this, editor).open();
-            }
+            editorCallback: (editor) => new MarkdownElementSuggestModal(this, editor).open(),
+            hotkeys: parsed ? [parsed] : []
         });
+    }
+
+    async onload() {
+        await this.loadSettings();
+        this.addSettingTab(new MarkdownSelectorSettingTab(this.app, this));
+        this.registerCommand();
     }
 
     async loadSettings() {
@@ -94,6 +113,8 @@ export default class MarkdownSelectorPlugin extends Plugin {
             { label: 'Ungeordnete Liste', insert: '- ', description: 'Aufzählungsliste' },
             { label: 'Geordnete Liste', insert: '1. ', description: 'Nummerierte Liste' },
             { label: 'Aufgabenliste', insert: '- [ ] ', description: 'Checkbox Liste' },
+            { label: 'Aufgabe offen', insert: '- [ ] Aufgabe', description: 'Einzelne offene Aufgabe' },
+            { label: 'Aufgabe erledigt', insert: '- [x] Aufgabe', description: 'Abgeschlossene Aufgabe' },
 
             // Blöcke
             { label: 'Codeblock', insert: '```\nCode\n```', description: 'Mehrzeiliger Codeblock' },
@@ -138,6 +159,7 @@ class MarkdownSelectorSettingTab extends PluginSettingTab {
                 .onChange(async (value) => {
                     this.plugin.settings.hotkey = value;
                     await this.plugin.saveSettings();
+                    this.plugin.registerCommand();
                 }));
     }
 }
