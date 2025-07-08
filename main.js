@@ -13,6 +13,41 @@ const obsidian_1 = require("obsidian");
 const DEFAULT_SETTINGS = {
     hotkey: "Mod+M"
 };
+class MarkdownElementSuggest extends obsidian_1.EditorSuggest {
+    constructor(plugin) {
+        super(plugin.app);
+        this.plugin = plugin;
+    }
+    onTrigger(cursor, editor, _file) {
+        const line = editor.getLine(cursor.line);
+        const beforeCursor = line.substring(0, cursor.ch);
+        if (beforeCursor.endsWith("//")) {
+            return {
+                start: { line: cursor.line, ch: cursor.ch - 2 },
+                end: cursor,
+                query: ""
+            };
+        }
+        return null;
+    }
+    getSuggestions(_context) {
+        return this.plugin.getMarkdownElements();
+    }
+    renderSuggestion(value, el) {
+        el.createEl("div", { text: `${value.label} – ${value.description}` });
+    }
+    selectSuggestion(value) {
+        var _a;
+        const editor = (_a = this.context) === null || _a === void 0 ? void 0 : _a.editor;
+        if (!editor)
+            return;
+        const cursor = editor.getCursor();
+        const line = editor.getLine(cursor.line);
+        const newLine = line.substring(0, cursor.ch - 2) + value.insert + line.substring(cursor.ch);
+        editor.setLine(cursor.line, newLine);
+        editor.setCursor({ line: cursor.line, ch: cursor.ch - 2 + value.insert.length });
+    }
+}
 class MarkdownElementSuggestModal extends obsidian_1.SuggestModal {
     constructor(plugin, editor) {
         super(plugin.app);
@@ -84,6 +119,7 @@ class MarkdownSelectorPlugin extends obsidian_1.Plugin {
         return __awaiter(this, void 0, void 0, function* () {
             yield this.loadSettings();
             this.addSettingTab(new MarkdownSelectorSettingTab(this.app, this));
+            this.registerEditorSuggest(new MarkdownElementSuggest(this));
             this.registerCommand();
         });
     }

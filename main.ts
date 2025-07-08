@@ -1,4 +1,4 @@
-import { Plugin, Editor, PluginSettingTab, Setting, App, TFile, SuggestModal, Modifier, Hotkey } from "obsidian";
+import { Plugin, Editor, PluginSettingTab, Setting, App, TFile, SuggestModal, Modifier, Hotkey, EditorSuggest, EditorSuggestTriggerInfo, EditorPosition, EditorSuggestContext } from "obsidian";
 
 interface MarkdownElement {
     label: string;
@@ -13,6 +13,46 @@ interface MarkdownSelectorSettings {
 const DEFAULT_SETTINGS: MarkdownSelectorSettings = {
     hotkey: "Mod+M"
 };
+
+class MarkdownElementSuggest extends EditorSuggest<MarkdownElement> {
+    plugin: MarkdownSelectorPlugin;
+
+    constructor(plugin: MarkdownSelectorPlugin) {
+        super(plugin.app);
+        this.plugin = plugin;
+    }
+
+    onTrigger(cursor: EditorPosition, editor: Editor, _file: TFile): EditorSuggestTriggerInfo | null {
+        const line = editor.getLine(cursor.line);
+        const beforeCursor = line.substring(0, cursor.ch);
+        if (beforeCursor.endsWith("//")) {
+            return {
+                start: { line: cursor.line, ch: cursor.ch - 2 },
+                end: cursor,
+                query: ""
+            };
+        }
+        return null;
+    }
+
+    getSuggestions(_context: EditorSuggestContext): MarkdownElement[] {
+        return this.plugin.getMarkdownElements();
+    }
+
+    renderSuggestion(value: MarkdownElement, el: HTMLElement) {
+        el.createEl("div", { text: `${value.label} – ${value.description}` });
+    }
+
+    selectSuggestion(value: MarkdownElement) {
+        const editor = this.context?.editor;
+        if (!editor) return;
+        const cursor = editor.getCursor();
+        const line = editor.getLine(cursor.line);
+        const newLine = line.substring(0, cursor.ch - 2) + value.insert + line.substring(cursor.ch);
+        editor.setLine(cursor.line, newLine);
+        editor.setCursor({ line: cursor.line, ch: cursor.ch - 2 + value.insert.length });
+    }
+}
 
 class MarkdownElementSuggestModal extends SuggestModal<MarkdownElement> {
     editor: Editor;
@@ -83,6 +123,7 @@ export default class MarkdownSelectorPlugin extends Plugin {
     async onload() {
         await this.loadSettings();
         this.addSettingTab(new MarkdownSelectorSettingTab(this.app, this));
+        this.registerEditorSuggest(new MarkdownElementSuggest(this));
         this.registerCommand();
     }
 
