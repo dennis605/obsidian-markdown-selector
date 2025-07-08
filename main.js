@@ -22,11 +22,9 @@ class MarkdownElementSuggest extends obsidian_1.EditorSuggest {
         const line = editor.getLine(cursor.line);
         const beforeCursor = line.substring(0, cursor.ch);
         if (beforeCursor.endsWith("//")) {
-            return {
-                start: { line: cursor.line, ch: cursor.ch - 2 },
-                end: cursor,
-                query: ""
-            };
+            // remove the trigger characters and open the selector modal
+            editor.replaceRange("", { line: cursor.line, ch: cursor.ch - 2 }, cursor);
+            new MarkdownElementSuggestModal(this.plugin, editor).open();
         }
         return null;
     }
