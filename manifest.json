@@ -1,7 +1,7 @@
 {
     "id": "markdown-selector",
     "name": "Markdown Element Selector",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "minAppVersion": "0.15.0",
     "description": "Ermöglicht die Auswahl von Markdown-Elementen durch Eingabe von //",
     "author": "Dein Name",
