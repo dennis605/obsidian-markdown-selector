@@ -39,11 +39,7 @@ class MarkdownElementSuggest extends obsidian_1.EditorSuggest {
         const editor = (_a = this.context) === null || _a === void 0 ? void 0 : _a.editor;
         if (!editor)
             return;
-        const cursor = editor.getCursor();
-        const line = editor.getLine(cursor.line);
-        const newLine = line.substring(0, cursor.ch - 2) + value.insert + line.substring(cursor.ch);
-        editor.setLine(cursor.line, newLine);
-        editor.setCursor({ line: cursor.line, ch: cursor.ch - 2 + value.insert.length });
+        this.plugin.insertElement(editor, value);
     }
 }
 class MarkdownElementSuggestModal extends obsidian_1.SuggestModal {
@@ -60,8 +56,16 @@ class MarkdownElementSuggestModal extends obsidian_1.SuggestModal {
         el.createEl("div", { text: element.label + " – " + element.description });
     }
     onChooseSuggestion(element, evt) {
-        // Gleiche Logik wie bisher für das Einfügen
-        const selection = this.editor.getSelection();
+        this.plugin.insertElement(this.editor, element);
+    }
+}
+class MarkdownSelectorPlugin extends obsidian_1.Plugin {
+    constructor() {
+        super(...arguments);
+        this.settings = DEFAULT_SETTINGS;
+    }
+    insertElement(editor, element) {
+        const selection = editor.getSelection();
         let insertText = element.insert;
         if (selection && selection.length > 0) {
             insertText = insertText
@@ -75,17 +79,35 @@ class MarkdownElementSuggestModal extends obsidian_1.SuggestModal {
             if (element.label === 'Fußnote') {
                 insertText = insertText.replace(selection + '[^1]', selection + '[^1]');
             }
-            this.editor.replaceSelection(insertText);
+            const from = editor.getCursor('from');
+            editor.replaceSelection(insertText);
+            editor.setCursor({ line: from.line, ch: from.ch + insertText.length });
         }
         else {
-            this.editor.replaceSelection(insertText);
+            const placeholders = [
+                'Text',
+                'Code',
+                'Linktext',
+                'URL',
+                'Bild-URL',
+                'Notizname',
+                'tag',
+                'Inhalt',
+                'Aufgabe'
+            ];
+            let cursorOffset = insertText.length;
+            for (const p of placeholders) {
+                const idx = insertText.indexOf(p);
+                if (idx !== -1) {
+                    insertText = insertText.replace(p, '');
+                    cursorOffset = idx;
+                    break;
+                }
+            }
+            const from = editor.getCursor('from');
+            editor.replaceSelection(insertText);
+            editor.setCursor({ line: from.line, ch: from.ch + cursorOffset });
         }
-    }
-}
-class MarkdownSelectorPlugin extends obsidian_1.Plugin {
-    constructor() {
-        super(...arguments);
-        this.settings = DEFAULT_SETTINGS;
     }
     parseHotkey(hotkey) {
         if (!hotkey)

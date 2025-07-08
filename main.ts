@@ -44,11 +44,7 @@ class MarkdownElementSuggest extends EditorSuggest<MarkdownElement> {
     selectSuggestion(value: MarkdownElement) {
         const editor = this.context?.editor;
         if (!editor) return;
-        const cursor = editor.getCursor();
-        const line = editor.getLine(cursor.line);
-        const newLine = line.substring(0, cursor.ch - 2) + value.insert + line.substring(cursor.ch);
-        editor.setLine(cursor.line, newLine);
-        editor.setCursor({ line: cursor.line, ch: cursor.ch - 2 + value.insert.length });
+        this.plugin.insertElement(editor, value);
     }
 }
 
@@ -68,8 +64,15 @@ class MarkdownElementSuggestModal extends SuggestModal<MarkdownElement> {
         el.createEl("div", { text: element.label + " – " + element.description });
     }
     onChooseSuggestion(element: MarkdownElement, evt: MouseEvent | KeyboardEvent) {
-        // Gleiche Logik wie bisher für das Einfügen
-        const selection = this.editor.getSelection();
+        this.plugin.insertElement(this.editor, element);
+    }
+}
+
+export default class MarkdownSelectorPlugin extends Plugin {
+    settings: MarkdownSelectorSettings = DEFAULT_SETTINGS;
+
+    insertElement(editor: Editor, element: MarkdownElement) {
+        const selection = editor.getSelection();
         let insertText = element.insert;
         if (selection && selection.length > 0) {
             insertText = insertText
@@ -83,15 +86,35 @@ class MarkdownElementSuggestModal extends SuggestModal<MarkdownElement> {
             if (element.label === 'Fußnote') {
                 insertText = insertText.replace(selection + '[^1]', selection + '[^1]');
             }
-            this.editor.replaceSelection(insertText);
+            const from = editor.getCursor('from');
+            editor.replaceSelection(insertText);
+            editor.setCursor({ line: from.line, ch: from.ch + insertText.length });
         } else {
-            this.editor.replaceSelection(insertText);
+            const placeholders = [
+                'Text',
+                'Code',
+                'Linktext',
+                'URL',
+                'Bild-URL',
+                'Notizname',
+                'tag',
+                'Inhalt',
+                'Aufgabe'
+            ];
+            let cursorOffset = insertText.length;
+            for (const p of placeholders) {
+                const idx = insertText.indexOf(p);
+                if (idx !== -1) {
+                    insertText = insertText.replace(p, '');
+                    cursorOffset = idx;
+                    break;
+                }
+            }
+            const from = editor.getCursor('from');
+            editor.replaceSelection(insertText);
+            editor.setCursor({ line: from.line, ch: from.ch + cursorOffset });
         }
     }
-}
-
-export default class MarkdownSelectorPlugin extends Plugin {
-    settings: MarkdownSelectorSettings = DEFAULT_SETTINGS;
 
     private parseHotkey(hotkey: string): Hotkey | null {
         if (!hotkey) return null;
